@@ -18,7 +18,9 @@ def parse_modelname(modelname):
         'ddr_extra': None,
         'ddr_fit': None,
         'wopt_mask': ['PASSIVE_EXPERIMENT', 'HIT_TRIAL', 'CORRECT_REJECT_TRIAL', 'MISS_TRIAL', 'INCORRECT_HIT_TRIAL'],
-        'beh_mask': ['PASSIVE_EXPERIMENT', 'HIT_TRIAL', 'CORRECT_REJECT_TRIAL', 'MISS_TRIAL', 'INCORRECT_HIT_TRIAL']
+        'beh_mask': ['PASSIVE_EXPERIMENT', 'HIT_TRIAL', 'CORRECT_REJECT_TRIAL', 'MISS_TRIAL', 'INCORRECT_HIT_TRIAL'],
+        'ddr_mask': ['PASSIVE_EXPERIMENT', 'HIT_TRIAL', 'CORRECT_REJECT_TRIAL', 'MISS_TRIAL', 'INCORRECT_HIT_TRIAL'],
+        'ddr_noise_axis': None
     }
     options = modelname.split('_')
     for op in options:
@@ -32,45 +34,78 @@ def parse_modelname(modelname):
             ndim = int(op[3])
             if ndim != 2:
                 model_options['ddr_extra'] = ndim - 2
-            _ops = op.split('-')
+            _ops = op.split('-')[1:]
             for _op in _ops:
                 if _op=='allTargets':
                     model_options['ddr_fit'] = 'allTargets'
+
+                if _op.startswith('noise'):
+                    noise_ops = _op.split('.')[1:]
+                    for no in noise_ops:
+                        if no=='target':
+                            model_options['ddr_noise_axis'] = 'TARGET'
+                        else:
+                            raise ValueError(f"Unknown option for ddr noise axis {no}")
+                
+                if _op.startswith('mask'):
+                    valid_trials = _op.split('.')[1].split('+')
+                    ddr_trials = []
+                    for v in valid_trials:
+                        if v=='h':
+                            ddr_trials.append('HIT_TRIAL')
+                        elif v=='m':
+                            ddr_trials.append('MISS_TRIAL')
+                        elif v=='f':
+                            ddr_trials.append('FALSE_ALARM_TRIAL')
+                        elif v=='c':
+                            ddr_trials.append('CORRECT_REJECT_TRIAL')
+                        elif v=='i':
+                            ddr_trials.append('INCORRECT_HIT_TRIAL')
+                        elif v=='p':
+                            ddr_trials.append('PASSIVE_EXPERIMENT')
+            
+                    model_options['ddr_mask'] = ddr_trials
         
         if op.startswith('wopt'):
             # decoding axis fitting options
-            dataset = op.split('-')[1]
-            valid_trials = dataset.split('.')
-            wopt_trials = []
-            for v in valid_trials:
-                if v=='h':
-                    wopt_trials.append('HIT_TRIAL')
-                elif v=='m':
-                    wopt_trials.append('MISS_TRIAL')
-                elif v=='f':
-                    wopt_trials.append('CORRECT_REJECT_TRIAL')
-                elif v=='i':
-                    wopt_trials.append('INCORRECT_HIT_TRIAL')
-                elif v=='p':
-                    wopt_trials.append('PASSIVE_TRIALS')
+            _ops = op.split('-')[1:]
+            for _op in _ops:
+                if _op.startswith('mask'):
+                    valid_trials = _op.split('.')[1].split('+')
+                    wopt_trials = []
+                    for v in valid_trials:
+                        if v=='h':
+                            wopt_trials.append('HIT_TRIAL')
+                        elif v=='m':
+                            wopt_trials.append('MISS_TRIAL')
+                        elif v=='f':
+                            wopt_trials.append('FALSE_ALARM_TRIAL')
+                        elif v=='c':
+                            wopt_trials.append('CORRECT_REJECT_TRIAL')
+                        elif v=='i':
+                            wopt_trials.append('INCORRECT_HIT_TRIAL')
+                        elif v=='p':
+                            wopt_trials.append('PASSIVE_EXPERIMENT')
             
-            model_options['wopt_mask'] = wopt_trials
+                model_options['wopt_mask'] = wopt_trials
         
         if op.startswith('mask'):
-            dataset = op.split('-')[1]
-            valid_trials = dataset.split('.')
+            dataset = op.split('.')[1]
+            valid_trials = dataset.split('+')
             trials = []
             for v in valid_trials:
                 if v=='h':
-                    wopt_trials.append('HIT_TRIAL')
+                    trials.append('HIT_TRIAL')
                 elif v=='m':
-                    wopt_trials.append('MISS_TRIAL')
+                    trials.append('MISS_TRIAL')
                 elif v=='f':
-                    wopt_trials.append('CORRECT_REJECT_TRIAL')
+                    trials.append('FALSE_ALARM_TRIAL')
+                elif v=='c':
+                    trials.append('CORRECT_REJECT_TRIAL')
                 elif v=='i':
-                    wopt_trials.append('INCORRECT_HIT_TRIAL')
+                    trials.append('INCORRECT_HIT_TRIAL')
                 elif v=='p':
-                    wopt_trials.append('PASSIVE_TRIALS')
+                    trials.append('PASSIVE_EXPERIMENT')
             
             model_options['beh_mask'] = trials
 
@@ -78,13 +113,21 @@ def parse_modelname(modelname):
     return model_options
 
 
-def fit_dDR(d, e1, e2, mask=None, extra_dim=None, ddr_noise=None):
+def fit_dDR(d, e1, e2, mask=None, extra_dim=None, noise_axis=None):
     """
     d is dictionary of spike counts for difference epochs
     e1/e2 are strings specifying which data to use.
     mask is dictionary with same size as d, used to mask data prior to computing dDR axes
     """
 
+    # if noise_axis is not None, use this to determine how to compute it
+    if noise_axis == 'TARGET':
+        log.info("Use targets only for computing dDR noise axis")
+        ddr_noise = get_noise_axis(d, regex='TAR_')
+    elif noise_axis is None:
+        ddr_noise = None
+    else:
+        raise ValueError(f"Unspecified option {noise_axis} for computing dDR noise axis")
     ddr = dDR(ddr2_init=ddr_noise, n_additional_axes=extra_dim)
 
     if (type(e1) is list) & (type(e2) is list):
@@ -104,6 +147,23 @@ def fit_dDR(d, e1, e2, mask=None, extra_dim=None, ddr_noise=None):
         else:
             ddr.fit(d[e1], d[e2])
         return ddr
+
+
+def get_noise_axis(d, regex='TAR_'):
+    """
+    Get noise axis by collapsing only over epochs with names matching regex string
+    """
+    centered = []
+    epochs = [e for e in d.keys() if regex in e]
+    for e in epochs:
+        _d = d[e]
+        _d = _d - _d.mean(axis=0, keepdims=True)
+        centered.append(_d)
+    centered = np.concatenate(centered, axis=0)
+    cov = np.cov(centered.squeeze().T)
+    evals, evecs = np.linalg.eig(cov)
+    evecs = evecs[:, np.argsort(evals)[::-1]]
+    return evecs[:, [0]].T
 
 
 def generate_est_val(d, e1, e2, leave_one_out=False):

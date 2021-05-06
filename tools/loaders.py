@@ -32,6 +32,7 @@ def load_data(site, batch, preprocessor=None, beh_mask=None, dict_ops=None, reca
     # set NEMS recording options
     options['resp'] = True
     options['pupil'] = True
+    options['stim'] = False
     options['rasterfs'] = options.get('rasterfs', bp.rasterfs(batch))
 
     # set spike count dict options
@@ -62,20 +63,20 @@ def load_data(site, batch, preprocessor=None, beh_mask=None, dict_ops=None, reca
     d = {k: v[:, :, dict_ops['start']:dict_ops['end']].mean(axis=-1) for (k, v) in d.items()}
 
     # build masks that mirror d for extract subsets of the loaded data
-    active_epochs = ['HIT_TRIAL', 'CORRECT_REJECT_TRIAL', 'MISS_TRIAL', 'INCORRECT_HIT_TRIAL']
+    active_epochs = ['HIT_TRIAL', 'CORRECT_REJECT_TRIAL', 'MISS_TRIAL', 'INCORRECT_HIT_TRIAL', 'FALSE_ALARM_TRIAL']
     passive_epochs = ['PASSIVE_EXPERIMENT']
     sigs = {}
     for ep in active_epochs+passive_epochs:
         dm = rec['resp'].epoch_to_signal(ep).extract_epochs(targets+catch, mask=rec['mask'])
-        dm = {k: v[:, :, dict_ops['start']:dict_ops['end']].mean(axis=-1).astype(bool) for (k, v) in dm.items()}
+        dm = {k: v[:, :, 0].astype(bool) for (k, v) in dm.items()}
         sigs[ep] = dm
 
     # make active mask
-    active_mask = sigs['HIT_TRIAL'] # place holder
+    active_mask = sigs['HIT_TRIAL'].copy() # place holder
     for k in active_epochs:
         for k2 in sigs[k].keys():
             active_mask[k2] = active_mask[k2] | sigs[k][k2]
-    passive_mask = sigs['PASSIVE_EXPERIMENT'] # place holder
+    passive_mask = sigs['PASSIVE_EXPERIMENT'].copy() # place holder
     for k in passive_epochs:
         for k2 in sigs[k].keys():
             passive_mask[k2] = passive_mask[k2] | sigs[k][k2]
