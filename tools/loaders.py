@@ -7,6 +7,7 @@ from nems_lbhb.baphy_io import parse_cellid
 import tools.batch_params as bp
 import tools.preprocessors as pp
 
+import numpy as np
 import logging
 log = logging.getLogger()
 
@@ -76,15 +77,46 @@ def load_data(site, batch, preprocessor=None, beh_mask=None, dict_ops=None, reca
     for k in active_epochs:
         for k2 in sigs[k].keys():
             active_mask[k2] = active_mask[k2] | sigs[k][k2]
+    # make passive mask
     passive_mask = sigs['PASSIVE_EXPERIMENT'].copy() # place holder
     for k in passive_epochs:
         for k2 in sigs[k].keys():
             passive_mask[k2] = passive_mask[k2] | sigs[k][k2]
+    
+    # get BAPHY TRIAL / RT for each sound. Shape the same as the dictionary
+    log.info("Loading reaction times for each target")
+    baphy_trials = [e for e in rec['resp'].epochs.name if 'BAPHYTRIAL' in e]
+    bt_dict = {}
+    rt_dict = {}
+    bev = manager.get_behavior_events(**{'rasterfs': 20})
+    for e in targets+catch:
+        bt_dict[e] = (np.nan * np.ones(sigs['HIT_TRIAL'][e].shape[0])).astype(str)
+        rt_dict[e] = np.nan * np.ones(len(bt_dict[e]))
+        me = [rec['resp'].epoch_to_signal(b).extract_epoch(e)[:,0,0] for b in baphy_trials]
+        for i, m in enumerate(me):
+            bt_dict[e][m] = baphy_trials[i]
+        # only care about TARGET reaction times
+        if 'TAR_' in e:
+            for i, b in enumerate(bt_dict[e]):
+                trial = int(b.strip('BAPHYTRIAL').split('_')[0])
+                fidx = int(b.strip('BAPHYTRIAL').split('_')[1].strip('FILE'))-1
+                if 'RT' not in bev[fidx].keys():
+                    # passive file
+                    pass
+                else:
+                    df = bev[fidx]
+                    df = df[df.Trial==trial]
+                    df = df[df.name.str.contains('Reference') | df.name.str.contains('Target') | df.name.str.contains('Catch')]
+                    df = df[~df.name.str.contains('PreStimSilence') & ~df.name.str.contains('PostStimSilence')]
+                    rt_dict[e][i] = df.iloc[-1]['RT']
+
     # Return results
     data = {
         'manager': manager,
         'rec': rec,
         'd': d,
+        'RT': rt_dict,
+        'BAPHYTRIAL': bt_dict,
         'active': active_mask,
         'passive': passive_mask,
         'TRIAL_masks': sigs,

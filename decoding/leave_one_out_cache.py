@@ -45,7 +45,9 @@ from charlieTools.nat_sounds_ms.decoding import compute_dprime
 import logging
 log = logging.getLogger()
 
-modelname = 'leaveOneOut_mask.h+m+p_pp-zscore-pr_dDR2-allTargets-noise.target-mask.h+m+p_wopt-mask.h+m'
+modelname = 'leaveOneOut_mask.h+m+p_pp-zscore-pr_dDR2-allTargets-noise.target-mask.p+c_wopt-mask.p'
+site = 'TAR010c'
+batch = 307
 
 # TODO - option for selecting which data (beh. trials) goes into the dDR algorithm
 # TODO - option for specifying a fixed noise axis for dDR
@@ -56,11 +58,9 @@ log.info(f"Parsed modelname options: {model_options}")
 
 
 # 2) Load and preprocess the data
-site = 'TAR010c'
-batch = 307
 data = load_data(site=site, batch=batch, 
                             preprocessor=model_options['preprocessor'], 
-                            beh_mask=model_options['beh_mask'])
+                            beh_mask=model_options['beh_mask'], recache=False)
 
 
 # 3) Perform decoding analysis(es) / save results
@@ -145,7 +145,6 @@ for sp in sound_pairs:
                 raise ValueError("Can't figure out behavior outcome??")
 
             # package results into a dictionary
-            # TODO -- add reaction time?
             results = {
                 'correct': correct,
                 'val_projection': val1,
@@ -158,7 +157,7 @@ for sp in sound_pairs:
                 'val_wopt_projection': val,
                 'epoch': e1,
                 'behavior_outcome': beh_outcome,
-                'reaction_time': np.nan, 
+                'reaction_time': data['RT'][e1][i], 
             }
 
             # then into a dataframe
