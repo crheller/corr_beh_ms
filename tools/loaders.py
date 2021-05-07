@@ -45,8 +45,9 @@ def load_data(site, batch, preprocessor=None, beh_mask=None, dict_ops=None, reca
     # Load recording
     rec = manager.get_recording(recache=recache, **options)
     rec['resp'] = rec['resp'].rasterize()
-    c, _ = parse_cellid({'cellid': site, 'batch': batch})
-    rec['resp'] = rec['resp'].extract_channels(c)
+    if batch==302:
+        c, _ = parse_cellid({'cellid': site, 'batch': batch})
+        rec['resp'] = rec['resp'].extract_channels(c)
 
     # Mask the data that will be extracted, to help with preprocessing?
     if beh_mask is None:

@@ -35,22 +35,44 @@ Example modelnames:
 from itertools import combinations
 import numpy as np 
 import pandas as pd
+import os
+import sys
 
+sys.path.append('/auto/users/hellerc/code/projects/corr_beh_ms/')
 from tools.loaders import load_data
 from dDR.dDR import dDR
 import tools.decoding_helpers as dh
 
 from charlieTools.nat_sounds_ms.decoding import compute_dprime
 
+import nems
+import nems.db as nd
+
 import logging
 log = logging.getLogger()
 
-modelname = 'leaveOneOut_mask.h+m+p_pp-zscore-pr_dDR2-allTargets-noise.target-mask.p+c_wopt-mask.p'
-site = 'TAR010c'
-batch = 307
+#modelname = 'leaveOneOut_mask.h+m+p_pp-zscore-pr_dDR2-allTargets-noise.target-mask.p+c_wopt-mask.p'
+#site = 'TAR010c'
+#batch = 307
 
-# TODO - option for selecting which data (beh. trials) goes into the dDR algorithm
-# TODO - option for specifying a fixed noise axis for dDR
+# ============================== SAVE PARAMETERS ===================================
+path = '/auto/users/hellerc/results/corr_beh_ms/loocv/'
+
+# ============================ set up dbqueue stuff ================================
+if 'QUEUEID' in os.environ:
+    queueid = os.environ['QUEUEID']
+    nems.utils.progress_fun = nd.update_job_tick
+
+else:
+    queueid = 0
+
+if queueid:
+    log.info("Starting QUEUEID={}".format(queueid))
+    nd.update_job_start(queueid)
+
+site = sys.argv[1]  
+batch = int(sys.argv[2])
+modelname = sys.argv[3]
 
 # 1) Parse modelname options
 model_options = dh.parse_modelname(modelname)
@@ -144,6 +166,22 @@ for sp in sound_pairs:
             if type(beh_outcome) != str:
                 raise ValueError("Can't figure out behavior outcome??")
 
+            if (e1 in data['targets']) & (e2 in data['targets']):
+                category = 'TAR_TAR'
+                epoch_category = 'TAR'
+            elif ((e1 in data['targets']) & (e2 in data['catch'])):
+                category = 'TAR_CAT'
+                epoch_category = 'TAR'
+            elif ((e2 in data['targets']) & (e1 in data['catch'])):
+                category = 'TAR_CAT'
+                epoch_category = 'CAT'
+            elif (e1 in data['catch']) & (e2 in data['catch']):
+                category = 'CAT_CAT'
+                epoch_category = 'CAT'
+            else:
+                category = 'unknown'
+                epoch_category = 'unknown'
+
             # package results into a dictionary
             results = {
                 'correct': correct,
@@ -156,8 +194,11 @@ for sp in sound_pairs:
                 'val_noise_projection': val_noise,
                 'val_wopt_projection': val,
                 'epoch': e1,
+                'epoch_category': epoch_category,
+                'discrim_category': category,
                 'behavior_outcome': beh_outcome,
                 'reaction_time': data['RT'][e1][i], 
+                'batch': batch
             }
 
             # then into a dataframe
@@ -169,3 +210,16 @@ for sp in sound_pairs:
             dfs.append(_df)
 
 results = pd.concat(dfs)
+
+if os.path.isdir(os.path.join(path, site)):
+    pass
+else:
+    os.mkdir(os.path.join(path, site))
+fn = os.path.join(path, site, modelname+'.pickle')
+results.to_pickle(fn)
+
+log.info(f"Saving results to {fn}")
+log.info("Success!")
+
+if queueid:
+    nd.update_job_complete(queueid)
